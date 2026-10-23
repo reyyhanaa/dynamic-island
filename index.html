@@ -1,0 +1,1092 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src https://lrclib.net">
+<title>Dynamic Island</title>
+<style>
+  :root {
+    --spring: cubic-bezier(.3, 1.35, .45, 1);
+    --ease: cubic-bezier(.2, .8, .2, 1);
+    --green: #34c759; --red: #ff453a; --blue: #0a84ff; --orange: #ff9f0a;
+    /* tema default: abu gelap dengan garis tepi terang supaya terlihat di atas tab gelap */
+    --bg: #3a3b40; --fg: #fff; --muted: rgba(255,255,255,.6);
+    --border: rgba(255,255,255,.35); --track: rgba(255,255,255,.16); --card: rgba(255,255,255,.08);
+  }
+  body[data-theme="putih"] { --bg: #f4f4f6; --fg: #111; --muted: rgba(0,0,0,.55); --border: rgba(0,0,0,.18); --track: rgba(0,0,0,.1); --card: rgba(0,0,0,.05); }
+  body[data-theme="biru"]  { --bg: #1d4ed8; --fg: #fff; --muted: rgba(255,255,255,.75); --border: rgba(255,255,255,.4); --track: rgba(255,255,255,.22); --card: rgba(255,255,255,.12); }
+  body[data-theme="ungu"]  { --bg: #6d28d9; --fg: #fff; --muted: rgba(255,255,255,.75); --border: rgba(255,255,255,.4); --track: rgba(255,255,255,.22); --card: rgba(255,255,255,.12); }
+  body[data-theme="hitam"] { --bg: #000; --fg: #fff; --muted: rgba(255,255,255,.55); --border: transparent; --track: rgba(255,255,255,.18); --card: rgba(255,255,255,.08); }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { background: transparent; overflow: hidden; user-select: none;
+    font-family: "SF Pro Display", "Segoe UI Variable Display", "Segoe UI", sans-serif; }
+  button { font: inherit; }
+
+  #island {
+    position: absolute; top: 0; left: 50%; transform: translateX(-50%);
+    width: 150px; height: 34px; border-radius: 17px;
+    background: var(--bg); color: var(--fg); overflow: hidden;
+    box-shadow: inset 0 0 0 1.5px var(--border), 0 6px 24px rgba(0, 0, 0, .35);
+    transition: width .55s var(--spring), height .55s var(--spring), border-radius .55s var(--spring), transform .15s;
+  }
+  #island.pressed { transform: translateX(-50%) scale(.97); }
+  #island.dropping { box-shadow: inset 0 0 0 2px var(--blue), 0 6px 24px rgba(0, 0, 0, .35); }
+
+  .layer {
+    position: absolute; inset: 0; opacity: 0; pointer-events: none;
+    filter: blur(6px); transform: scale(.94);
+    transition: opacity .25s var(--ease), filter .3s var(--ease), transform .4s var(--spring);
+  }
+  .layer.on { opacity: 1; pointer-events: auto; filter: none; transform: none; transition-delay: .1s; }
+  .page { padding: 18px 22px 52px; }
+  .muted { color: var(--muted); }
+  .num { font-variant-numeric: tabular-nums; }
+  .pill-row { display: flex; align-items: center; justify-content: space-between; padding: 0 14px; height: 100%; font-size: 13px; font-weight: 600; }
+
+  /* ---- tombol navigasi antar halaman ---- */
+  .nav { position: absolute; left: 0; right: 0; bottom: 10px; display: flex; justify-content: center; gap: 4px;
+    opacity: 0; pointer-events: none; transition: opacity .2s; }
+  .nav.show { opacity: 1; pointer-events: auto; transition: opacity .3s .15s; }
+  .nav button { width: 40px; height: 30px; border-radius: 15px; background: none; border: 0; color: var(--muted); cursor: pointer;
+    display: grid; place-items: center; transition: background .2s, color .2s; }
+  .nav button:hover { color: var(--fg); }
+  .nav button.on { background: var(--track); color: var(--fg); }
+  .nav button svg { width: 17px; height: 17px; fill: currentColor; }
+  .nav button[hidden] { display: none; }
+
+  .btn { background: var(--card); border: 0; color: var(--fg); border-radius: 999px; padding: 6px 13px; font-size: 12.5px; font-weight: 600; cursor: pointer; transition: background .2s, transform .1s; }
+  .btn:hover { background: var(--track); }
+  .btn:active { transform: scale(.94); }
+  .btn.primary { background: var(--fg); color: var(--bg); }
+  .btn.sel { background: var(--fg); color: var(--bg); }
+
+  /* ---- idle ---- */
+  .bat { display: flex; align-items: center; gap: 5px; font-size: 12px; }
+  .bat-ic { width: 22px; height: 11px; border: 1.5px solid var(--muted); border-radius: 3.5px; padding: 1px; position: relative; }
+  .bat-ic::after { content: ""; position: absolute; right: -4px; top: 3px; width: 2px; height: 4px; border-radius: 0 1px 1px 0; background: var(--muted); }
+  .bat-fill { height: 100%; border-radius: 1.5px; background: var(--fg); transition: width .4s; }
+  .bat.charging .bat-fill { background: var(--green); }
+  .bat.low .bat-fill { background: var(--red); }
+
+  /* ---- maskot mata ---- */
+  #eyes { display: flex; align-items: center; justify-content: center; gap: 22px; }
+  #eyes i { width: 11px; height: 15px; border-radius: 6px; background: var(--fg); animation: blink 5s infinite; transform-origin: center; }
+  #eyes.sleepy i { height: 3px; border-radius: 2px; animation: none; margin-top: 4px; }
+  @keyframes blink { 0%, 92%, 100% { transform: scaleY(1) } 95% { transform: scaleY(.1) } }
+  #eyes .zz { position: absolute; right: 16px; top: 4px; font-size: 10px; color: var(--muted); display: none; }
+  #eyes.sleepy .zz { display: block; animation: zz 2s infinite; }
+  @keyframes zz { 0% { opacity: 0; transform: translateY(4px) } 50% { opacity: 1 } 100% { opacity: 0; transform: translateY(-6px) } }
+
+  /* ---- media pil kecil ---- */
+  #compact, #lyricpill { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 0 8px 0 7px; }
+  .art-s { width: 22px; height: 22px; border-radius: 6px; object-fit: cover; background: var(--card); flex: none; }
+  #lpText { flex: 1; min-width: 0; text-align: center; font-size: 12.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: opacity .25s; }
+  .wave { display: flex; align-items: center; gap: 2.5px; height: 18px; padding-right: 6px; flex: none; }
+  .wave i { width: 3px; border-radius: 2px; background: var(--accent, var(--fg)); height: 4px; }
+  .playing .wave i { animation: bar 1s ease-in-out infinite; }
+  .wave i:nth-child(1) { animation-delay: -.2s } .wave i:nth-child(2) { animation-delay: -.6s }
+  .wave i:nth-child(3) { animation-delay: -.35s } .wave i:nth-child(4) { animation-delay: -.8s }
+  .wave i:nth-child(5) { animation-delay: -.5s }
+  @keyframes bar { 0%, 100% { height: 4px } 50% { height: 16px } }
+
+  /* ---- timer pil kecil ---- */
+  #timerpill .tp-left { display: flex; align-items: center; gap: 7px; }
+  .mini-ring { width: 18px; height: 18px; transform: rotate(-90deg); }
+
+  /* ---- halaman musik ---- */
+  .row { display: flex; align-items: center; gap: 14px; }
+  .art-l { width: 58px; height: 58px; border-radius: 14px; object-fit: cover; background: var(--card); flex: none; }
+  .meta { flex: 1; min-width: 0; }
+  .title { font-size: 16px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .artist { font-size: 14px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+  .prog { display: flex; align-items: center; gap: 10px; margin-top: 14px; font-size: 11px; color: var(--muted); }
+  .bar { flex: 1; height: 5px; border-radius: 3px; background: var(--track); overflow: hidden; }
+  .bar > div { height: 100%; width: 0; background: var(--fg); border-radius: 3px; }
+  #seekBar { cursor: pointer; height: 7px; }
+  .ctrl { display: flex; justify-content: center; gap: 34px; margin: 6px 0 8px; }
+  .ctrl button { background: none; border: 0; color: var(--fg); cursor: pointer; width: 36px; height: 36px; border-radius: 50%;
+    display: grid; place-items: center; transition: background .2s, transform .15s; }
+  .ctrl button:hover { background: var(--track); }
+  .ctrl button:active { transform: scale(.85); }
+  .ctrl svg { width: 22px; height: 22px; fill: var(--fg); }
+  #play svg { width: 28px; height: 28px; }
+
+  /* ---- halaman jam ---- */
+  .clock-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+  .big { font-size: 42px; font-weight: 300; letter-spacing: -1px; }
+  .date { font-size: 13px; color: var(--muted); margin-top: 2px; }
+  .ring { width: 54px; height: 54px; position: relative; display: grid; place-items: center; font-size: 12px; font-weight: 600; }
+  .ring svg { position: absolute; inset: 0; transform: rotate(-90deg); }
+  .clickable { cursor: pointer; }
+
+  /* ---- baris WiFi + volume ---- */
+  .sys { display: flex; align-items: center; gap: 14px; font-size: 12px; color: var(--muted); }
+  .wifi { display: flex; align-items: center; gap: 6px; min-width: 0; max-width: 140px; flex: none; }
+  .wifi .ssid { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sig { display: flex; align-items: flex-end; gap: 1.5px; height: 12px; flex: none; }
+  .sig i { width: 3px; border-radius: 1px; background: var(--track); }
+  .sig i.on { background: var(--fg); }
+  .sig i:nth-child(1) { height: 4px } .sig i:nth-child(2) { height: 6.5px } .sig i:nth-child(3) { height: 9px } .sig i:nth-child(4) { height: 12px }
+  .wifi.off { color: var(--red); }
+  .vol { flex: 1; display: flex; align-items: center; gap: 8px; }
+  .vol button { background: none; border: 0; cursor: pointer; display: grid; place-items: center; color: var(--fg); width: 22px; height: 22px; border-radius: 50%; }
+  .vol button:hover { background: var(--track); }
+  .vol svg { width: 16px; height: 16px; fill: currentColor; }
+  input[type=range] { flex: 1; -webkit-appearance: none; appearance: none; height: 6px; border-radius: 3px; cursor: pointer;
+    background: linear-gradient(to right, var(--fg) var(--p, 50%), var(--track) var(--p, 50%)); }
+  input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%; background: var(--fg); box-shadow: 0 1px 4px rgba(0,0,0,.4); }
+  .vpct { width: 30px; text-align: right; }
+  .bri-row { margin-top: 10px; }
+  .wifi-gap { width: 0; }
+  .bpct { width: 30px; text-align: right; }
+  .bri-row[hidden] { display: none; }
+  .bri-ic { width: 22px; height: 22px; display: grid; place-items: center; color: var(--fg); }
+  .bri-ic svg { width: 17px; height: 17px; fill: currentColor; }
+
+  /* ---- kalender ---- */
+  #calendar { padding: 18px 22px; }
+  .cal-head { display: flex; align-items: center; justify-content: space-between; font-size: 15px; font-weight: 600; margin-bottom: 10px; }
+  .cal-head span { cursor: pointer; }
+  .cal-head button { background: none; border: 0; color: var(--fg); cursor: pointer; width: 28px; height: 28px; border-radius: 50%; font-size: 18px; }
+  .cal-head button:hover { background: var(--track); }
+  .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; text-align: center; font-size: 12.5px; }
+  .cal-grid .wd { color: var(--muted); font-size: 11px; height: 20px; }
+  .cal-grid span { height: 30px; display: grid; place-items: center; border-radius: 50%; }
+  .cal-grid .other { color: var(--muted); opacity: .45; }
+  .cal-grid .sun { color: #ff6b61; }
+  .cal-grid .today { background: var(--red); color: #fff; font-weight: 700; }
+
+  /* ---- lirik ---- */
+  .ly-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+  .ly-head .art-s { width: 30px; height: 30px; border-radius: 8px; }
+  .ly-head .meta div:first-child { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ly-head .meta div:last-child { font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #lyBox { height: 168px; overflow-y: auto; scroll-behavior: smooth; mask-image: linear-gradient(transparent, #000 18%, #000 82%, transparent); padding: 60px 0; }
+  #lyBox::-webkit-scrollbar { display: none; }
+  #lyBox p { font-size: 15px; font-weight: 600; line-height: 1.35; padding: 4px 0; color: var(--muted); opacity: .55; cursor: pointer; transition: color .3s, opacity .3s, transform .3s; transform-origin: left; }
+  #lyBox p.cur { color: var(--fg); opacity: 1; transform: scale(1.04); }
+  #lyBox p:hover { opacity: .9; }
+  #lyBox .info { text-align: center; color: var(--muted); font-size: 13px; padding-top: 30px; cursor: default; opacity: 1; }
+  .switch { font-size: 11.5px; display: flex; align-items: center; gap: 6px; color: var(--muted); cursor: pointer; white-space: nowrap; }
+  .switch input { accent-color: var(--green); }
+
+  /* ---- timer fokus ---- */
+  .tm-modes { display: flex; gap: 6px; justify-content: center; }
+  .tm-big { text-align: center; font-size: 52px; font-weight: 300; letter-spacing: -1px; margin: 8px 0 2px; }
+  .tm-sub { text-align: center; font-size: 12px; color: var(--muted); margin-bottom: 10px; }
+  .tm-ctrl { display: flex; justify-content: center; gap: 8px; }
+
+  /* ---- minum ---- */
+  .wt-top { display: flex; align-items: flex-end; justify-content: space-between; }
+  .wt-big { font-size: 34px; font-weight: 300; }
+  .wt-big small { font-size: 15px; color: var(--muted); }
+  #wtBar { height: 10px; margin: 10px 0 6px; border-radius: 5px; }
+  #wtBar > div { background: linear-gradient(90deg, #5ac8fa, var(--blue)); border-radius: 5px; transition: width .5s var(--ease); }
+  .wt-row { display: flex; gap: 6px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
+  .wt-goal { display: flex; align-items: center; gap: 6px; margin-left: auto; font-size: 12px; color: var(--muted); }
+  .wt-goal .btn { padding: 3px 9px; }
+
+  /* ---- to-do ---- */
+  .td-add { display: flex; gap: 6px; }
+  .td-add input { background: var(--card); border: 1px solid transparent; color: var(--fg); border-radius: 10px; padding: 7px 10px; font: inherit; font-size: 13px; outline: none; }
+  .td-add input:focus { border-color: var(--muted); }
+  .td-add input[type=text] { flex: 1; min-width: 0; }
+  .td-add input[type=time] { width: 92px; color-scheme: dark; }
+  body[data-theme="putih"] .td-add input[type=time] { color-scheme: light; }
+  #tdList { margin-top: 8px; height: 150px; overflow-y: auto; }
+  #tdList::-webkit-scrollbar { width: 4px; } #tdList::-webkit-scrollbar-thumb { background: var(--track); border-radius: 2px; }
+  .td-item { display: flex; align-items: center; gap: 9px; padding: 6px 4px; border-radius: 8px; font-size: 13.5px; }
+  .td-item:hover { background: var(--card); }
+  .td-check { width: 18px; height: 18px; border-radius: 50%; border: 1.5px solid var(--muted); flex: none; cursor: pointer; display: grid; place-items: center; }
+  .td-item.done .td-check { background: var(--green); border-color: var(--green); }
+  .td-item.done .td-check::after { content: ""; width: 5px; height: 9px; border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(45deg) translate(-1px, -1px); }
+  .td-text { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .td-item.done .td-text { text-decoration: line-through; color: var(--muted); }
+  .td-time { font-size: 11.5px; color: var(--orange); }
+  .td-item.done .td-time { color: var(--muted); }
+  .td-del { background: none; border: 0; color: var(--muted); cursor: pointer; font-size: 16px; width: 22px; height: 22px; border-radius: 50%; opacity: 0; }
+  .td-item:hover .td-del { opacity: 1; }
+  .td-del:hover { background: var(--track); color: var(--fg); }
+  .td-empty { text-align: center; color: var(--muted); font-size: 13px; padding-top: 40px; }
+  .pg-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; font-size: 15px; font-weight: 600; }
+  .pg-head .muted { font-size: 12px; font-weight: 500; }
+
+  /* ---- shelf ---- */
+  #shList { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; height: 132px; overflow-y: auto; align-content: start; }
+  .sh-item { display: flex; align-items: center; gap: 8px; background: var(--card); border-radius: 10px; padding: 7px 8px; cursor: grab; position: relative; }
+  .sh-item:hover { background: var(--track); }
+  .sh-ext { width: 30px; height: 30px; border-radius: 7px; background: var(--blue); color: #fff; font-size: 9px; font-weight: 700; display: grid; place-items: center; flex: none; text-transform: uppercase; overflow: hidden; }
+  .sh-name { font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sh-size { font-size: 10.5px; color: var(--muted); }
+  .sh-x { position: absolute; top: 2px; right: 4px; background: none; border: 0; color: var(--muted); cursor: pointer; font-size: 13px; display: none; }
+  .sh-item:hover .sh-x { display: block; }
+  .sh-drop { height: 132px; border: 1.5px dashed var(--muted); border-radius: 14px; display: grid; place-items: center; text-align: center; color: var(--muted); font-size: 13px; }
+
+  /* ---- notifikasi ---- */
+  #toast { display: flex; align-items: center; gap: 10px; padding: 0 18px 0 12px; font-size: 13px; }
+  .t-ic { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; flex: none; background: var(--track); }
+  .t-ic svg { width: 15px; height: 15px; fill: currentColor; }
+  .t-text { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .t-side { font-weight: 600; flex: none; }
+  #voltoast { display: flex; align-items: center; gap: 12px; padding: 0 18px 0 14px; font-size: 13px; font-weight: 600; }
+  #voltoast svg { width: 18px; height: 18px; fill: var(--fg); flex: none; }
+  #voltoast .bar { height: 6px; }
+  #voltoast .vpct { width: 34px; }
+</style>
+</head>
+<body>
+<div id="island">
+  <!-- ===== tampilan kecil (tidak di-hover) ===== -->
+  <div class="layer" id="idle">
+    <div class="pill-row">
+      <span id="time" class="num">--:--</span>
+      <span class="bat" id="bat1"><span id="batPct1" class="num"></span><span class="bat-ic"><div class="bat-fill" id="batFill1"></div></span></span>
+    </div>
+  </div>
+
+  <div class="layer" id="eyes"><i></i><i></i><span class="zz">z</span></div>
+
+  <div class="layer" id="compact">
+    <img class="art-s" alt="">
+    <div class="wave"><i></i><i></i><i></i><i></i><i></i></div>
+  </div>
+
+  <div class="layer" id="lyricpill">
+    <img class="art-s" alt="">
+    <span id="lpText"></span>
+    <div class="wave"><i></i><i></i><i></i><i></i><i></i></div>
+  </div>
+
+  <div class="layer" id="timerpill">
+    <div class="pill-row">
+      <span class="tp-left"><svg class="mini-ring" viewBox="0 0 20 20"><circle cx="10" cy="10" r="8" fill="none" stroke="var(--track)" stroke-width="3"/><circle id="tpArc" cx="10" cy="10" r="8" fill="none" stroke="var(--orange)" stroke-width="3" stroke-linecap="round" stroke-dasharray="50.3" stroke-dashoffset="0"/></svg><span id="tpLabel">Fokus</span></span>
+      <span id="tpTime" class="num" style="color:var(--orange)">25:00</span>
+    </div>
+  </div>
+
+  <!-- ===== halaman (saat di-hover) ===== -->
+  <div class="layer page" id="expanded">
+    <div class="row">
+      <img class="art-l" alt="">
+      <div class="meta">
+        <div class="title" id="title"></div>
+        <div class="artist" id="artist"></div>
+      </div>
+      <div class="wave"><i></i><i></i><i></i><i></i><i></i></div>
+    </div>
+    <div class="prog num"><span id="pos">0:00</span><div class="bar" id="seekBar"><div id="barFill"></div></div><span id="dur">0:00</span></div>
+    <div class="ctrl">
+      <button data-cmd="prev" title="Sebelumnya"><svg viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6z"/></svg></button>
+      <button data-cmd="toggle" id="play" title="Putar/Jeda"></button>
+      <button data-cmd="next" title="Berikutnya"><svg viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg></button>
+    </div>
+    <div class="sys">
+      <div class="wifi"><span class="sig"><i></i><i></i><i></i><i></i></span><span class="ssid">-</span></div>
+      <div class="vol"><button class="mute" title="Bisukan"></button><input type="range" class="volr" min="0" max="100" value="50"><span class="vpct num"></span></div>
+    </div>
+    <div class="sys bri-row" hidden>
+      <div class="wifi-gap"></div>
+      <div class="vol"><span class="bri-ic"></span><input type="range" class="brir" min="0" max="100" value="50"><span class="bpct num"></span></div>
+    </div>
+  </div>
+
+  <div class="layer page" id="clock">
+    <div class="clock-top">
+      <div class="clickable" id="openCal" title="Buka kalender">
+        <div class="big num" id="bigTime">--:--</div>
+        <div class="date" id="date"></div>
+      </div>
+      <div class="ring">
+        <svg viewBox="0 0 54 54"><circle cx="27" cy="27" r="23" fill="none" stroke="var(--track)" stroke-width="5"/>
+          <circle id="ringArc" cx="27" cy="27" r="23" fill="none" stroke="var(--fg)" stroke-width="5" stroke-linecap="round" stroke-dasharray="144.5" stroke-dashoffset="144.5"/></svg>
+        <span id="batPct2" class="num"></span>
+      </div>
+    </div>
+    <div class="sys">
+      <div class="wifi"><span class="sig"><i></i><i></i><i></i><i></i></span><span class="ssid">-</span></div>
+      <div class="vol"><button class="mute" title="Bisukan"></button><input type="range" class="volr" min="0" max="100" value="50"><span class="vpct num"></span></div>
+    </div>
+    <div class="sys bri-row" hidden>
+      <div class="wifi-gap"></div>
+      <div class="vol"><span class="bri-ic"></span><input type="range" class="brir" min="0" max="100" value="50"><span class="bpct num"></span></div>
+    </div>
+  </div>
+
+  <div class="layer" id="calendar">
+    <div class="cal-head"><button id="calPrev">&#8249;</button><span id="calTitle" title="Kembali"></span><button id="calNext">&#8250;</button></div>
+    <div class="cal-grid num" id="calGrid"></div>
+  </div>
+
+  <div class="layer page" id="lyrics">
+    <div class="ly-head">
+      <img class="art-s" alt="">
+      <div class="meta"><div id="lyTitle"></div><div id="lyArtist"></div></div>
+      <label class="switch" title="Tampilkan baris lirik di pil kecil saat island tertutup"><input type="checkbox" id="lyPill"> Di pil</label>
+    </div>
+    <div id="lyBox"></div>
+  </div>
+
+  <div class="layer page" id="timer">
+    <div class="tm-modes">
+      <button class="btn" data-tm="fokus">Fokus 25</button>
+      <button class="btn" data-tm="pendek">Istirahat 5</button>
+      <button class="btn" data-tm="panjang">Istirahat 15</button>
+    </div>
+    <div class="tm-big num" id="tmBig">25:00</div>
+    <div class="tm-sub" id="tmSub">Sesi fokus hari ini: 0</div>
+    <div class="tm-ctrl">
+      <button class="btn primary" id="tmStart">Mulai</button>
+      <button class="btn" id="tmReset">Ulang</button>
+    </div>
+  </div>
+
+  <div class="layer page" id="water">
+    <div class="wt-top">
+      <div class="wt-big num" id="wtBig">0 <small>/ 2,0 L</small></div>
+      <div class="muted" style="font-size:12px" id="wtLast">Belum minum hari ini</div>
+    </div>
+    <div class="bar" id="wtBar"><div id="wtFill"></div></div>
+    <div class="muted" style="font-size:12px" id="wtPct">0% dari target</div>
+    <div class="wt-row">
+      <button class="btn" data-ml="150">+150 ml</button>
+      <button class="btn" data-ml="250">+250 ml</button>
+      <button class="btn" data-ml="500">+500 ml</button>
+      <button class="btn" id="wtUndo" title="Batalkan yang terakhir">&#8630;</button>
+    </div>
+    <div class="wt-row">
+      <label class="switch"><input type="checkbox" id="wtRemind"> Ingatkan tiap jam (08–21)</label>
+      <div class="wt-goal">Target <button class="btn" id="wtMinus">−</button><span id="wtGoal" class="num">2,0 L</span><button class="btn" id="wtPlus">+</button></div>
+    </div>
+  </div>
+
+  <div class="layer page" id="todo">
+    <div class="pg-head">To-do <span class="muted" id="tdCount"></span></div>
+    <form class="td-add" id="tdForm">
+      <input type="text" id="tdText" placeholder="Tambah tugas…" maxlength="80">
+      <input type="time" id="tdTime" title="Jam pengingat (opsional)">
+      <button class="btn primary" type="submit">+</button>
+    </form>
+    <div id="tdList"></div>
+  </div>
+
+  <div class="layer page" id="shelf">
+    <div class="pg-head">Shelf <button class="btn" id="shClear">Kosongkan</button></div>
+    <div id="shList"></div>
+  </div>
+
+  <!-- ===== notifikasi ===== -->
+  <div class="layer" id="toast">
+    <div class="t-ic" id="tIc"></div>
+    <div class="t-text" id="tText"></div>
+    <div class="t-side" id="tSide"></div>
+  </div>
+
+  <div class="layer" id="voltoast">
+    <span id="vtIc"></span><div class="bar"><div id="vtFill"></div></div><span class="vpct num" id="vtPct"></span>
+  </div>
+
+  <nav class="nav" id="nav">
+    <button data-page="home" title="Beranda"><svg viewBox="0 0 24 24"><path d="M12 3 2 12h3v8h5v-6h4v6h5v-8h3z"/></svg></button>
+    <button data-page="lyrics" title="Lirik"><svg viewBox="0 0 24 24"><path d="M3 5h12v2H3zm0 4h12v2H3zm0 4h8v2H3zm14-8h4v2h-2v9a3 3 0 1 1-2-2.8z"/></svg></button>
+    <button data-page="timer" title="Timer fokus"><svg viewBox="0 0 24 24"><path d="M9 1h6v2H9zm10 6.4 1.4-1.4L19 4.6l-1.4 1.4A9 9 0 1 0 19 7.4zM12 20a7 7 0 1 1 0-14 7 7 0 0 1 0 14zm1-11h-2v5l4 2.5.9-1.6-2.9-1.8z"/></svg></button>
+    <button data-page="water" title="Pengingat minum"><svg viewBox="0 0 24 24"><path d="M12 2s-7 7.6-7 12.5a7 7 0 0 0 14 0C19 9.6 12 2 12 2zm0 18a5 5 0 0 1-5-5h2a3 3 0 0 0 3 3z"/></svg></button>
+    <button data-page="todo" title="To-do"><svg viewBox="0 0 24 24"><path d="M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z"/></svg></button>
+    <button data-page="shelf" title="Shelf file"><svg viewBox="0 0 24 24"><path d="M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8z"/></svg></button>
+  </nav>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const $$ = (sel) => document.querySelectorAll(sel);
+const island = $('island');
+const api = window.islandApi;
+const ICON = {
+  play: '<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>',
+  pause: '<svg viewBox="0 0 24 24"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>',
+  bolt: '<svg viewBox="0 0 24 24"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></svg>',
+  copy: '<svg viewBox="0 0 24 24"><path d="M16 1H4a2 2 0 0 0-2 2v14h2V3h12V1zm3 4H8a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2zm0 16H8V7h11v14z"/></svg>',
+  vol: '<svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 8v8a4.5 4.5 0 0 0 2.5-4zM14 3.2v2.1a7 7 0 0 1 0 13.4v2.1a9 9 0 0 0 0-17.6z"/></svg>',
+  sun: '<svg viewBox="0 0 24 24"><path d="M12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10zM11 1h2v3h-2zm0 19h2v3h-2zM1 11h3v2H1zm19 0h3v2h-3zM4.2 5.6l1.4-1.4 2.1 2.1-1.4 1.4zm12.1 12.1 1.4-1.4 2.1 2.1-1.4 1.4zM4.2 18.4l2.1-2.1 1.4 1.4-2.1 2.1zM16.3 6.3l2.1-2.1 1.4 1.4-2.1 2.1z"/></svg>',
+  muted: '<svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.6 3 2.7-2.7-1.4-1.4-2.7 2.7-2.7-2.7-1.4 1.4 2.7 2.7-2.7 2.7 1.4 1.4 2.7-2.7 2.7 2.7 1.4-1.4z"/></svg>',
+  wifi: '<svg viewBox="0 0 24 24"><path d="M12 21l3.6-4.8a6 6 0 0 0-7.2 0zM12 3C7.9 3 4.1 4.4 1 6.7l1.8 2.4a15 15 0 0 1 18.4 0L23 6.7A18 18 0 0 0 12 3zm0 6c-2.7 0-5.2.9-7.2 2.4L6.6 14a9 9 0 0 1 10.8 0l1.8-2.4A12 12 0 0 0 12 9z"/></svg>',
+  plug: '<svg viewBox="0 0 24 24"><path d="M16 7V3h-2v4h-4V3H8v4H6v6l4 4v4h4v-4l4-4V7z"/></svg>',
+  caps: '<svg viewBox="0 0 24 24"><path d="M12 4 4 13h5v4h6v-4h5zM8 19h8v2H8z"/></svg>',
+  bell: '<svg viewBox="0 0 24 24"><path d="M12 22a2 2 0 0 0 2-2h-4a2 2 0 0 0 2 2zm6-6V11a6 6 0 0 0-5-5.9V4a1 1 0 0 0-2 0v1.1A6 6 0 0 0 6 11v5l-2 2v1h16v-1z"/></svg>',
+  drop: '<svg viewBox="0 0 24 24"><path d="M12 2s-7 7.6-7 12.5a7 7 0 0 0 14 0C19 9.6 12 2 12 2z"/></svg>',
+  timer: '<svg viewBox="0 0 24 24"><path d="M9 1h6v2H9zm10 6.4 1.4-1.4L19 4.6l-1.4 1.4A9 9 0 1 0 19 7.4zM12 20a7 7 0 1 1 0-14 7 7 0 0 1 0 14zm1-11h-2v5l4 2.5.9-1.6-2.9-1.8z"/></svg>',
+  file: '<svg viewBox="0 0 24 24"><path d="M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8z"/></svg>',
+};
+
+// data yang perlu diingat (to-do, minum, shelf, dll) disimpan di komputer ini
+const store = {
+  get(k, d) { try { const v = JSON.parse(localStorage.getItem(k)); return v ?? d; } catch { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+};
+const todayKey = () => new Date().toLocaleDateString('sv-SE'); // 2026-10-23
+const hhmm = (d = new Date()) => d.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }).replace('.', ':');
+const fmt = (s) => { s = Math.max(0, Math.floor(s || 0)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
+const fmt2 = (s) => { s = Math.max(0, Math.ceil(s)); return String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0'); };
+const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+const state = {
+  hover: false, page: 'home', calendar: false, toast: null,
+  media: { active: false }, battery: null, volume: null, wifi: null, brightness: null,
+  mascot: true, lastActivity: Date.now(),
+};
+
+// ukuran tiap tampilan: [lebar, tinggi, radius]
+const SIZE = {
+  idle: [150, 34, 17], eyes: [150, 34, 17], compact: [250, 34, 17], lyricpill: [400, 34, 17], timerpill: [200, 34, 17],
+  expanded: [420, 262, 42], clock: [380, 192, 40], calendar: [340, 300, 40],
+  lyrics: [420, 300, 42], timer: [380, 236, 40], water: [400, 246, 40], todo: [400, 290, 40], shelf: [420, 252, 40],
+  toast: [330, 44, 22], voltoast: [300, 44, 22],
+};
+const PAGES_WITH_NAV = ['expanded', 'clock', 'lyrics', 'timer', 'water', 'todo', 'shelf'];
+
+function mode() {
+  if (state.toast) return state.toast === 'level' ? 'voltoast' : 'toast';
+  if (state.hover) {
+    if (state.calendar) return 'calendar';
+    const p = state.page === 'lyrics' && !state.media.active ? 'home' : state.page;
+    if (p === 'home') return state.media.active ? 'expanded' : 'clock';
+    return p;
+  }
+  if (state.media.active) return lyr.pill && lyr.curText ? 'lyricpill' : 'compact';
+  if (timer.running) return 'timerpill';
+  if (state.mascot && Date.now() - state.lastActivity > 60000) return 'eyes';
+  return 'idle';
+}
+
+let current = '';
+function render() {
+  const m = mode();
+  if (m === current) return;
+  current = m;
+  let [w, h, r] = SIZE[m];
+  // baris kecerahan hanya ada kalau layarnya bisa diatur (layar laptop)
+  if (state.brightness && (m === 'clock' || m === 'expanded')) h += 32;
+  island.style.width = w + 'px';
+  island.style.height = h + 'px';
+  island.style.borderRadius = r + 'px';
+  $$('.layer').forEach((el) => el.classList.toggle('on', el.id === m));
+  // tombol halaman hanya muncul di halaman besar
+  const nav = $('nav');
+  nav.classList.toggle('show', PAGES_WITH_NAV.includes(m));
+  const active = m === 'expanded' || m === 'clock' ? 'home' : m;
+  nav.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.page === active));
+  nav.querySelector('[data-page="lyrics"]').hidden = !state.media.active;
+  api.setSize(w, h);
+  if (m === 'lyrics') scrollLyrics(true);
+  if (m === 'todo') setTimeout(() => api.setFocusable(true), 50); else api.setFocusable(false);
+}
+function activity() { state.lastActivity = Date.now(); }
+
+$$('#nav button').forEach((b) => b.addEventListener('click', () => {
+  state.page = b.dataset.page; state.calendar = false; render();
+}));
+
+// ---- jam ----
+function tickClock() {
+  const t = hhmm();
+  $('time').textContent = t;
+  $('bigTime').textContent = t;
+  $('date').textContent = new Date().toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long' });
+}
+
+// ---- baterai ----
+function showBattery() {
+  const b = state.battery;
+  if (!b) return;
+  const pct = Math.round(b.level * 100);
+  $('batPct1').textContent = pct + '%';
+  $('batPct2').textContent = pct + '%';
+  $('batFill1').style.width = pct + '%';
+  $('bat1').classList.toggle('charging', b.charging);
+  $('bat1').classList.toggle('low', !b.charging && pct <= 20);
+  const arc = $('ringArc');
+  arc.style.strokeDashoffset = 144.5 * (1 - b.level);
+  arc.style.stroke = b.charging ? 'var(--green)' : pct <= 20 ? 'var(--red)' : 'var(--fg)';
+}
+if (navigator.getBattery) navigator.getBattery().then((b) => {
+  state.battery = b; showBattery();
+  b.addEventListener('levelchange', showBattery);
+  b.addEventListener('chargingchange', () => {
+    showBattery();
+    const pct = Math.round(b.level * 100) + '%';
+    toast(b.charging ? ICON.bolt : ICON.plug, b.charging ? 'Mengisi daya' : 'Charger dilepas', pct, b.charging ? 'var(--green)' : 'var(--fg)');
+  });
+});
+
+// ---- notifikasi singkat ----
+let toastTimer;
+function toast(icon, text, side = '', color = 'var(--fg)', ms = 2600) {
+  $('tIc').innerHTML = icon;
+  $('tIc').style.color = color;
+  $('tText').textContent = text;
+  $('tSide').textContent = side;
+  $('tSide').style.color = color;
+  state.toast = true;
+  activity();
+  current = ''; render();
+  holdToast(ms);
+}
+function holdToast(ms = 2600) {
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { state.toast = null; render(); }, ms);
+}
+// bunyi "ting" lembut untuk timer dan pengingat
+function chime(times = 2) {
+  try {
+    const ac = new AudioContext();
+    for (let i = 0; i < times; i++) {
+      [880, 1320].forEach((f, j) => {
+        const o = ac.createOscillator(), g = ac.createGain();
+        o.type = 'sine'; o.frequency.value = f;
+        const t0 = ac.currentTime + i * 0.45 + j * 0.12;
+        g.gain.setValueAtTime(0, t0);
+        g.gain.linearRampToValueAtTime(0.18, t0 + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.001, t0 + 0.9);
+        o.connect(g).connect(ac.destination); o.start(t0); o.stop(t0 + 1);
+      });
+    }
+    setTimeout(() => ac.close(), 3000);
+  } catch {}
+}
+
+api.onTheme((t) => { document.body.dataset.theme = t; });
+api.onSetting((s) => { if ('mascot' in s) { state.mascot = s.mascot; current = ''; render(); } });
+api.onCopied((t) => toast(ICON.copy, t.replace(/\s+/g, ' '), 'Disalin', 'var(--blue)'));
+let capsSeen = false;
+api.onCaps((d) => { if (!capsSeen) { capsSeen = true; return; } toast(ICON.caps, d.on ? 'Caps Lock nyala' : 'Caps Lock mati', d.on ? 'ABC' : 'abc', d.on ? 'var(--orange)' : 'var(--fg)', 1500); });
+
+// ---- media ----
+function mediaPos() {
+  const m = state.media;
+  if (!m.active) return 0;
+  let pos = m.position || 0;
+  if (m.playing) pos += (Date.now() - (m.updated || m.receivedAt)) / 1000;
+  return Math.min(pos, m.duration || pos);
+}
+api.onMedia((d) => {
+  const prev = state.media;
+  if (d.active && !d.art && prev.art && prev.title === d.title) d.art = prev.art;
+  d.receivedAt = Date.now();
+  state.media = d;
+  if (d.active) {
+    $('title').textContent = d.title || 'Tidak diketahui';
+    $('artist').textContent = d.artist || appName(d.app);
+    $('lyTitle').textContent = d.title || 'Tidak diketahui';
+    $('lyArtist').textContent = d.artist || appName(d.app);
+    $$('.art-s, .art-l').forEach((img) => { if (d.art) img.src = d.art; else img.removeAttribute('src'); });
+    if (d.art) pickAccent(d.art);
+    island.classList.toggle('playing', d.playing);
+    $('play').innerHTML = d.playing ? ICON.pause : ICON.play;
+    if (!prev.active || prev.title !== d.title || prev.artist !== d.artist) {
+      loadLyrics(d);
+      // lagu baru: tampilkan sebentar seperti iPhone
+      if (d.title && !state.hover) toast(d.art ? `<img src="${d.art}" style="width:26px;height:26px;border-radius:7px;object-fit:cover">` : ICON.play, d.title, '');
+    }
+    activity();
+  } else island.classList.remove('playing');
+  current = ''; render();
+});
+
+function appName(id = '') {
+  const s = id.toLowerCase();
+  if (s.includes('spotify')) return 'Spotify';
+  if (s.includes('chrome')) return 'Google Chrome';
+  if (s.includes('edge')) return 'Microsoft Edge';
+  if (s.includes('firefox')) return 'Firefox';
+  return id.split(/[\\!.]/).filter(Boolean).pop() || '';
+}
+
+// warna aksen gelombang diambil dari sampul album
+function pickAccent(src) {
+  const img = new Image();
+  img.onload = () => {
+    const c = document.createElement('canvas'); c.width = c.height = 8;
+    const x = c.getContext('2d'); x.drawImage(img, 0, 0, 8, 8);
+    const px = x.getImageData(0, 0, 8, 8).data;
+    let best = [255, 255, 255], score = -1;
+    for (let i = 0; i < px.length; i += 4) {
+      const [r, g, b] = [px[i], px[i + 1], px[i + 2]];
+      const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+      const s = (mx - mn) * (mx / 255);
+      if (s > score) { score = s; best = [r, g, b]; }
+    }
+    if (score < 40) island.style.removeProperty('--accent');
+    else island.style.setProperty('--accent', `rgb(${best.join(',')})`);
+  };
+  img.src = src;
+}
+
+function tickProgress() {
+  const m = state.media;
+  if (m.active && m.duration > 0) {
+    const pos = mediaPos();
+    $('pos').textContent = fmt(pos);
+    $('dur').textContent = '-' + fmt(m.duration - pos);
+    $('barFill').style.width = (pos / m.duration * 100) + '%';
+  } else {
+    $('pos').textContent = ''; $('dur').textContent = ''; $('barFill').style.width = '0';
+  }
+}
+function seek(sec) {
+  api.mediaCmd('seek ' + sec.toFixed(2));
+  Object.assign(state.media, { position: sec, updated: Date.now() });
+  tickProgress(); updateLyricLine(true);
+}
+$('seekBar').addEventListener('click', (e) => {
+  const m = state.media;
+  if (!m.active || !m.duration) return;
+  const r = e.currentTarget.getBoundingClientRect();
+  seek(Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * m.duration);
+});
+
+$$('.ctrl button').forEach((b) => b.addEventListener('click', (e) => {
+  e.stopPropagation();
+  api.mediaCmd(b.dataset.cmd);
+  if (b.dataset.cmd === 'toggle') {
+    state.media.playing = !state.media.playing;
+    if (!state.media.playing) state.media.position = mediaPos();
+    state.media.updated = Date.now();
+    island.classList.toggle('playing', state.media.playing);
+    $('play').innerHTML = state.media.playing ? ICON.pause : ICON.play;
+  }
+}));
+
+// ---- lirik (dari lrclib.net, cuma judul, artis & durasi lagu yang dikirim) ----
+const lyr = { key: '', lines: [], plain: false, idx: -1, curText: '', pill: store.get('lyPill', false) };
+$('lyPill').checked = lyr.pill;
+$('lyPill').addEventListener('change', (e) => { lyr.pill = e.target.checked; store.set('lyPill', lyr.pill); });
+const lyricCache = {};
+function parseLrc(text) {
+  const out = [];
+  for (const raw of text.split('\n')) {
+    const tags = [...raw.matchAll(/\[(\d+):(\d+(?:\.\d+)?)\]/g)];
+    const words = raw.replace(/\[[^\]]*\]/g, '').trim();
+    for (const t of tags) out.push({ t: +t[1] * 60 + +t[2], text: words });
+  }
+  return out.sort((a, b) => a.t - b.t);
+}
+function showLyricsInfo(text) { $('lyBox').innerHTML = `<p class="info">${esc(text)}</p>`; }
+async function loadLyrics(d) {
+  const key = `${d.title}|${d.artist}`;
+  lyr.key = key; lyr.lines = []; lyr.idx = -1; lyr.curText = ''; lyr.plain = false;
+  if (!d.title) return showLyricsInfo('Tidak ada judul lagu');
+  showLyricsInfo('Mencari lirik…');
+  let res = lyricCache[key];
+  if (!res) {
+    try {
+      const q = new URLSearchParams({ track_name: d.title, artist_name: d.artist || '' });
+      if (d.duration > 0) q.set('duration', Math.round(d.duration));
+      let r = await fetch('https://lrclib.net/api/get?' + q);
+      let j = r.ok ? await r.json() : null;
+      if (!j || (!j.syncedLyrics && !j.plainLyrics)) {
+        r = await fetch('https://lrclib.net/api/search?' + new URLSearchParams({ q: `${d.title} ${d.artist || ''}`.trim() }));
+        const list = r.ok ? await r.json() : [];
+        j = list.find((x) => x.syncedLyrics) || list.find((x) => x.plainLyrics) || null;
+      }
+      res = j ? { synced: j.syncedLyrics || '', plain: j.plainLyrics || '' } : { synced: '', plain: '' };
+      lyricCache[key] = res;
+    } catch { if (lyr.key === key) showLyricsInfo('Gagal mengambil lirik (cek internet)'); return; }
+  }
+  if (lyr.key !== key) return; // lagu sudah ganti
+  if (res.synced) lyr.lines = parseLrc(res.synced);
+  else if (res.plain) { lyr.plain = true; lyr.lines = res.plain.split('\n').map((text) => ({ t: -1, text: text.trim() })); }
+  if (!lyr.lines.length) return showLyricsInfo('Lirik untuk lagu ini belum tersedia');
+  $('lyBox').innerHTML = lyr.lines.map((l, i) => `<p data-i="${i}">${esc(l.text) || '♪'}</p>`).join('');
+  updateLyricLine(true);
+}
+$('lyBox').addEventListener('click', (e) => {
+  const p = e.target.closest('p[data-i]');
+  if (!p || lyr.plain) return;
+  seek(lyr.lines[+p.dataset.i].t);
+});
+function updateLyricLine(force) {
+  if (!lyr.lines.length || lyr.plain) { if (lyr.curText) { lyr.curText = ''; render(); } return; }
+  const pos = mediaPos() + 0.25;
+  let idx = -1;
+  for (let i = 0; i < lyr.lines.length; i++) { if (lyr.lines[i].t <= pos) idx = i; else break; }
+  if (idx === lyr.idx && !force) return;
+  lyr.idx = idx;
+  $$('#lyBox p').forEach((p) => p.classList.toggle('cur', +p.dataset.i === idx));
+  const text = idx >= 0 ? lyr.lines[idx].text : '';
+  if (text !== lyr.curText) {
+    $('lpText').style.opacity = 0;
+    setTimeout(() => { $('lpText').textContent = text; $('lpText').style.opacity = 1; }, 150);
+    const wasEmpty = !lyr.curText;
+    lyr.curText = text;
+    if (wasEmpty !== !text) render();
+  }
+  scrollLyrics();
+}
+function scrollLyrics(instant) {
+  const box = $('lyBox'), p = box.querySelector('p.cur');
+  if (!p) return;
+  const top = p.offsetTop - box.clientHeight / 2 + p.offsetHeight / 2;
+  if (instant) { box.style.scrollBehavior = 'auto'; box.scrollTop = top; box.style.scrollBehavior = ''; }
+  else box.scrollTop = top;
+}
+
+// ---- volume ----
+function showVolume() {
+  const v = state.volume;
+  if (!v) return;
+  const pct = Math.round(v.level * 100);
+  const icon = v.muted || pct === 0 ? ICON.muted : ICON.vol;
+  $$('.volr').forEach((r) => {
+    if (document.activeElement !== r) r.value = pct;
+    r.style.setProperty('--p', (v.muted ? 0 : pct) + '%');
+  });
+  $$('.volr + .vpct').forEach((el) => { el.textContent = v.muted ? 'Bisu' : pct + '%'; });
+  $$('.mute').forEach((b) => { b.innerHTML = icon; });
+}
+// notifikasi bar ala iPhone untuk volume / kecerahan
+function levelToast(icon, pct, label) {
+  $('vtIc').innerHTML = icon;
+  $('vtFill').style.width = pct + '%';
+  $('vtPct').textContent = label;
+  state.toast = 'level'; activity(); render(); holdToast(1600);
+}
+api.onVolume((v) => {
+  const first = !state.volume;
+  const changed = !first && (v.muted !== state.volume.muted || Math.abs(v.level - state.volume.level) >= 0.01);
+  state.volume = v;
+  showVolume();
+  // munculkan bar volume seperti iPhone, kecuali saat island sedang dibuka (slider sudah terlihat)
+  if (changed && !state.hover) {
+    const pct = Math.round(v.level * 100);
+    levelToast(v.muted || pct === 0 ? ICON.muted : ICON.vol, v.muted ? 0 : pct, v.muted ? 'Bisu' : pct + '%');
+  }
+});
+function setVolume(pct) {
+  pct = Math.max(0, Math.min(100, Math.round(pct)));
+  api.systemCmd('vol ' + (pct / 100).toFixed(2));
+  state.volume = { level: pct / 100, muted: false };
+  showVolume();
+}
+$$('.volr').forEach((r) => r.addEventListener('input', () => setVolume(+r.value)));
+$$('.mute').forEach((b) => b.addEventListener('click', () => api.systemCmd('mute')));
+// ---- kecerahan layar ----
+function showBrightness() {
+  const b = state.brightness;
+  $$('.bri-row').forEach((row) => { row.hidden = !b; });
+  if (!b) return;
+  $$('.brir').forEach((r) => {
+    if (document.activeElement !== r) r.value = b.level;
+    r.style.setProperty('--p', b.level + '%');
+  });
+  $$('.bpct').forEach((el) => { el.textContent = b.level + '%'; });
+  $$('.bri-ic').forEach((el) => { el.innerHTML = ICON.sun; });
+}
+let brightSent = 0, brightTimer;
+api.onBrightness((b) => {
+  const first = !state.brightness;
+  const changed = !first && b.level !== state.brightness.level;
+  // abaikan pantulan dari slider yang sedang digeser sendiri
+  if (!first && Date.now() - brightSent < 800) return;
+  state.brightness = { level: b.level };
+  showBrightness();
+  if (first) { current = ''; render(); }
+  if (changed && !state.hover) levelToast(ICON.sun, b.level, b.level + '%');
+});
+function setBrightness(pct) {
+  pct = Math.max(0, Math.min(100, Math.round(pct)));
+  state.brightness = { level: pct };
+  showBrightness();
+  brightSent = Date.now();
+  clearTimeout(brightTimer);
+  brightTimer = setTimeout(() => api.systemCmd('bright ' + pct), 60);
+}
+$$('.brir').forEach((r) => r.addEventListener('input', () => setBrightness(+r.value)));
+
+// putar scroll mouse di atas island untuk mengatur volume; di atas baris kecerahan (atau sambil tahan Shift) untuk kecerahan
+island.addEventListener('wheel', (e) => {
+  if (['calendar', 'lyrics', 'todo', 'shelf'].includes(current)) return;
+  e.preventDefault();
+  const step = e.deltaY < 0 ? 1 : -1;
+  if (state.brightness && (e.shiftKey || e.target.closest('.bri-row'))) return setBrightness(state.brightness.level + step * 5);
+  if (state.volume) setVolume(state.volume.level * 100 + step * 2);
+}, { passive: false });
+
+// ---- WiFi ----
+api.onWifi((w) => {
+  const prev = state.wifi;
+  state.wifi = w;
+  const bars = !w.connected ? 0 : w.signal >= 75 ? 4 : w.signal >= 50 ? 3 : w.signal >= 25 ? 2 : 1;
+  $$('.wifi').forEach((el) => {
+    el.classList.toggle('off', !w.connected);
+    el.querySelector('.ssid').textContent = w.connected ? w.ssid : 'Tidak terhubung';
+    el.title = w.connected ? `${w.ssid} - sinyal ${w.signal}%` : 'WiFi tidak terhubung';
+    el.querySelectorAll('.sig i').forEach((b, i) => b.classList.toggle('on', i < bars));
+  });
+  if (!prev) return;
+  if (w.connected && (!prev.connected || prev.ssid !== w.ssid)) toast(ICON.wifi, 'Terhubung ke ' + w.ssid, w.signal + '%', 'var(--green)');
+  else if (!w.connected && prev.connected) toast(ICON.wifi, 'WiFi terputus', '', 'var(--red)');
+});
+
+// ---- kalender (klik jam besar untuk membuka, klik judul bulan untuk kembali) ----
+let calMonth = new Date();
+function drawCalendar() {
+  const y = calMonth.getFullYear(), m = calMonth.getMonth();
+  $('calTitle').textContent = new Date(y, m, 1).toLocaleDateString('id-ID', { month: 'long', year: 'numeric' });
+  const today = new Date();
+  const start = (new Date(y, m, 1).getDay() + 6) % 7; // minggu dimulai Senin
+  let html = ['Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab', 'Min'].map((d) => `<span class="wd">${d}</span>`).join('');
+  for (let i = 0; i < 42; i++) {
+    const d = new Date(y, m, 1 - start + i);
+    const cls = [d.getMonth() !== m && 'other', d.getDay() === 0 && 'sun', d.toDateString() === today.toDateString() && 'today'].filter(Boolean).join(' ');
+    html += `<span class="${cls}">${d.getDate()}</span>`;
+  }
+  $('calGrid').innerHTML = html;
+}
+$('openCal').addEventListener('click', () => { calMonth = new Date(); drawCalendar(); state.calendar = true; render(); });
+$('calPrev').addEventListener('click', () => { calMonth = new Date(calMonth.getFullYear(), calMonth.getMonth() - 1, 1); drawCalendar(); });
+$('calNext').addEventListener('click', () => { calMonth = new Date(calMonth.getFullYear(), calMonth.getMonth() + 1, 1); drawCalendar(); });
+$('calTitle').addEventListener('click', () => { state.calendar = false; render(); });
+
+// ---- timer fokus (Pomodoro) ----
+const TM = { fokus: [25, 'Fokus'], pendek: [5, 'Istirahat'], panjang: [15, 'Istirahat panjang'] };
+const timer = { mode: 'fokus', remaining: 25 * 60, endAt: 0, running: false };
+function tmSessions() { const s = store.get('tmSessions', {}); return s[todayKey()] || 0; }
+function setTimerMode(m) {
+  timer.mode = m; timer.running = false; timer.remaining = TM[m][0] * 60;
+  drawTimer(); render();
+}
+function timerLeft() { return timer.running ? (timer.endAt - Date.now()) / 1000 : timer.remaining; }
+function drawTimer() {
+  const left = timerLeft(), total = TM[timer.mode][0] * 60;
+  $('tmBig').textContent = fmt2(left);
+  $('tmStart').textContent = timer.running ? 'Jeda' : left < total ? 'Lanjut' : 'Mulai';
+  $('tmSub').textContent = `${TM[timer.mode][1]} · sesi fokus hari ini: ${tmSessions()}`;
+  $$('[data-tm]').forEach((b) => b.classList.toggle('sel', b.dataset.tm === timer.mode));
+  $('tpTime').textContent = fmt2(left);
+  $('tpLabel').textContent = TM[timer.mode][1];
+  const color = timer.mode === 'fokus' ? 'var(--orange)' : 'var(--green)';
+  $('tpTime').style.color = color; $('tpArc').style.stroke = color;
+  $('tpArc').style.strokeDashoffset = 50.3 * (1 - left / total);
+}
+function tickTimer() {
+  if (!timer.running) return;
+  if (timerLeft() <= 0) {
+    timer.running = false;
+    chime(3);
+    if (timer.mode === 'fokus') {
+      const s = store.get('tmSessions', {}); s[todayKey()] = (s[todayKey()] || 0) + 1; store.set('tmSessions', s);
+      const next = s[todayKey()] % 4 === 0 ? 'panjang' : 'pendek';
+      toast(ICON.timer, 'Sesi fokus selesai, waktunya istirahat', '', 'var(--green)', 6000);
+      setTimerMode(next);
+    } else {
+      toast(ICON.timer, 'Istirahat selesai, ayo fokus lagi', '', 'var(--orange)', 6000);
+      setTimerMode('fokus');
+    }
+    return;
+  }
+  drawTimer();
+}
+$$('[data-tm]').forEach((b) => b.addEventListener('click', () => setTimerMode(b.dataset.tm)));
+$('tmStart').addEventListener('click', () => {
+  if (timer.running) { timer.remaining = timerLeft(); timer.running = false; }
+  else { timer.endAt = Date.now() + timer.remaining * 1000; timer.running = true; }
+  drawTimer();
+});
+$('tmReset').addEventListener('click', () => setTimerMode(timer.mode));
+
+// ---- pengingat minum ----
+function water() {
+  const w = store.get('water', { date: todayKey(), log: [], goal: 2000, remind: true, lastRemind: 0 });
+  if (w.date !== todayKey()) { w.date = todayKey(); w.log = []; }
+  return w;
+}
+function drawWater() {
+  const w = water(), ml = w.log.reduce((a, x) => a + x.ml, 0), pct = Math.round(ml / w.goal * 100);
+  $('wtBig').innerHTML = `${(ml / 1000).toLocaleString('id-ID', { maximumFractionDigits: 2 })} L <small>/ ${(w.goal / 1000).toLocaleString('id-ID', { minimumFractionDigits: 1 })} L</small>`;
+  $('wtFill').style.width = Math.min(100, pct) + '%';
+  $('wtPct').textContent = pct >= 100 ? `${pct}% · Target tercapai 🎉` : `${pct}% dari target · kurang ${w.goal - ml} ml`;
+  $('wtLast').textContent = w.log.length ? `Terakhir minum ${hhmm(new Date(w.log[w.log.length - 1].t))}` : 'Belum minum hari ini';
+  $('wtGoal').textContent = (w.goal / 1000).toLocaleString('id-ID', { minimumFractionDigits: 1 }) + ' L';
+  $('wtRemind').checked = w.remind;
+}
+function saveWater(fn) { const w = water(); fn(w); store.set('water', w); drawWater(); }
+$$('[data-ml]').forEach((b) => b.addEventListener('click', () => saveWater((w) => w.log.push({ t: Date.now(), ml: +b.dataset.ml }))));
+$('wtUndo').addEventListener('click', () => saveWater((w) => w.log.pop()));
+$('wtMinus').addEventListener('click', () => saveWater((w) => { w.goal = Math.max(500, w.goal - 250); }));
+$('wtPlus').addEventListener('click', () => saveWater((w) => { w.goal = Math.min(5000, w.goal + 250); }));
+$('wtRemind').addEventListener('change', (e) => saveWater((w) => { w.remind = e.target.checked; }));
+function checkWaterReminder() {
+  const w = water(), h = new Date().getHours();
+  if (!w.remind || h < 8 || h >= 21) return;
+  const ml = w.log.reduce((a, x) => a + x.ml, 0);
+  if (ml >= w.goal) return;
+  const last = Math.max(w.log.length ? w.log[w.log.length - 1].t : 0, w.lastRemind || 0, startedAt);
+  if (Date.now() - last < 60 * 60 * 1000) return;
+  saveWater((x) => { x.lastRemind = Date.now(); });
+  chime(1);
+  toast(ICON.drop, 'Waktunya minum air', `${ml}/${w.goal} ml`, '#5ac8fa', 6000);
+}
+const startedAt = Date.now();
+
+// ---- to-do + pengingat jam ----
+function todos() { return store.get('todos', []); }
+function saveTodos(list) { store.set('todos', list); drawTodos(); }
+function drawTodos() {
+  const list = todos();
+  $('tdCount').textContent = list.length ? `${list.filter((t) => t.done).length}/${list.length} selesai` : '';
+  $('tdList').innerHTML = list.length
+    ? list.map((t) => `<div class="td-item${t.done ? ' done' : ''}" data-id="${t.id}">
+        <span class="td-check"></span><span class="td-text">${esc(t.text)}</span>
+        ${t.time ? `<span class="td-time num">${t.time}</span>` : ''}<button class="td-del" title="Hapus">×</button></div>`).join('')
+    : '<div class="td-empty">Belum ada tugas. Tulis di atas, jam boleh diisi untuk pengingat.</div>';
+}
+$('tdForm').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const text = $('tdText').value.trim();
+  if (!text) return;
+  const list = todos();
+  list.push({ id: Date.now(), text, time: $('tdTime').value, done: false, notified: false, date: todayKey() });
+  saveTodos(list);
+  $('tdText').value = ''; $('tdTime').value = '';
+});
+$('tdList').addEventListener('click', (e) => {
+  const item = e.target.closest('.td-item');
+  if (!item) return;
+  const list = todos(), t = list.find((x) => x.id === +item.dataset.id);
+  if (e.target.closest('.td-del')) return saveTodos(list.filter((x) => x !== t));
+  if (e.target.closest('.td-check, .td-text')) { t.done = !t.done; t.doneDate = todayKey(); saveTodos(list); }
+});
+function checkTodoReminders() {
+  const now = hhmm(), list = todos();
+  let changed = false;
+  for (const t of list) {
+    if (t.done || !t.time || t.notified === todayKey()) continue;
+    if (t.time <= now) {
+      t.notified = todayKey(); changed = true;
+      chime(2);
+      toast(ICON.bell, t.text, t.time, 'var(--orange)', 8000);
+    }
+  }
+  if (changed) saveTodos(list);
+}
+
+// ---- shelf: taruh file di island, tarik keluar kapan saja ----
+function shelf() { return store.get('shelf', []); }
+function saveShelf(list) { store.set('shelf', list); drawShelf(); }
+const fsize = (b) => b >= 1e9 ? (b / 1e9).toFixed(1) + ' GB' : b >= 1e6 ? (b / 1e6).toFixed(1) + ' MB' : b >= 1e3 ? Math.round(b / 1e3) + ' KB' : b + ' B';
+function drawShelf() {
+  const list = shelf();
+  $('shClear').style.visibility = list.length ? 'visible' : 'hidden';
+  $('shList').innerHTML = list.length
+    ? list.map((f, i) => {
+        const ext = f.dir ? 'folder' : (f.name.split('.').pop() || '').slice(0, 4);
+        return `<div class="sh-item" draggable="true" data-i="${i}" title="${esc(f.path)}\nKlik untuk membuka · tarik untuk memindahkan">
+          <span class="sh-ext" style="${f.dir ? 'background:var(--orange)' : ''}">${esc(ext)}</span>
+          <div style="min-width:0"><div class="sh-name">${esc(f.name)}</div><div class="sh-size">${f.dir ? 'Folder' : fsize(f.size)}</div></div>
+          <button class="sh-x" title="Hapus dari shelf">×</button></div>`;
+      }).join('')
+    : '';
+  $('shList').style.display = list.length ? '' : 'none';
+  let drop = $('shDrop');
+  if (!list.length) {
+    if (!drop) { drop = document.createElement('div'); drop.id = 'shDrop'; drop.className = 'sh-drop'; $('shelf').appendChild(drop); }
+    drop.innerHTML = 'Tarik file ke island untuk menyimpannya di sini<br><span style="font-size:11.5px">lalu tarik keluar ke chat, email, atau folder lain</span>';
+  } else if (drop) drop.remove();
+}
+$('shList').addEventListener('click', (e) => {
+  const item = e.target.closest('.sh-item');
+  if (!item) return;
+  const list = shelf(), i = +item.dataset.i;
+  if (e.target.closest('.sh-x')) { list.splice(i, 1); return saveShelf(list); }
+  api.openPath(list[i].path);
+});
+$('shList').addEventListener('dragstart', (e) => {
+  const item = e.target.closest('.sh-item');
+  if (!item) return;
+  e.preventDefault();
+  api.startDrag(shelf()[+item.dataset.i].path);
+});
+$('shClear').addEventListener('click', () => saveShelf([]));
+// file ditarik ke atas island dari Explorer / desktop
+let dropTimer;
+island.addEventListener('dragover', (e) => {
+  if (!e.dataTransfer.types.includes('Files')) return;
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'copy';
+  island.classList.add('dropping');
+  clearTimeout(dropTimer);
+  dropTimer = setTimeout(() => island.classList.remove('dropping'), 300);
+  if (!state.hover || state.page !== 'shelf') { state.hover = true; state.page = 'shelf'; state.calendar = false; state.toast = null; render(); }
+});
+island.addEventListener('drop', async (e) => {
+  e.preventDefault();
+  island.classList.remove('dropping');
+  const list = shelf();
+  for (const f of e.dataTransfer.files) {
+    const p = api.pathOf(f);
+    if (!p || list.some((x) => x.path === p)) continue;
+    const st = await api.statPath(p);
+    list.push({ path: p, name: f.name, size: st.size, dir: st.dir });
+  }
+  saveShelf(list);
+});
+document.addEventListener('dragover', (e) => e.preventDefault());
+document.addEventListener('drop', (e) => e.preventDefault());
+
+// ---- hover: island membesar (ada jeda supaya tidak membesar saat kursor cuma lewat) ----
+let leaveTimer, enterTimer, dragging = false, down = null;
+island.addEventListener('mouseenter', () => {
+  clearTimeout(leaveTimer);
+  activity();
+  enterTimer = setTimeout(() => {
+    if (dragging) return;
+    // dari mata yang tertidur: tampilkan dulu "bangun", lalu buka
+    state.hover = true; state.toast = null; render();
+  }, 400);
+});
+island.addEventListener('mouseleave', (e) => {
+  clearTimeout(enterTimer);
+  if (dragging) return;
+  // Windows kadang mengirim "mouse keluar" palsu saat fokus jendela berubah; abaikan kalau kursor masih di dalam
+  const r = island.getBoundingClientRect();
+  if (e.clientX > r.left && e.clientX < r.right && e.clientY > r.top && e.clientY < r.bottom) return;
+  // jangan tutup saat sedang mengetik to-do (misal kursor sempat keluar sedikit)
+  if (current === 'todo' && document.activeElement && document.activeElement.tagName === 'INPUT' && document.activeElement.value) return;
+  leaveTimer = setTimeout(() => { state.hover = false; state.calendar = false; render(); }, 300);
+});
+
+// ---- tahan & tarik untuk memindahkan island ----
+island.addEventListener('pointerdown', (e) => {
+  if (e.button !== 0 || e.target.closest('button, input, label, form, .clickable, .cal-head span, #lyBox, #tdList, #shList, #seekBar')) return;
+  down = { x: e.screenX, y: e.screenY };
+  island.setPointerCapture(e.pointerId);
+  island.classList.add('pressed');
+});
+island.addEventListener('pointermove', (e) => {
+  if (!down) return;
+  if (!dragging && Math.hypot(e.screenX - down.x, e.screenY - down.y) > 4) {
+    dragging = true;
+    clearTimeout(enterTimer);
+    api.drag('start');
+  }
+  if (dragging) api.drag('move');
+});
+island.addEventListener('pointerup', () => {
+  island.classList.remove('pressed');
+  if (dragging) api.drag('end');
+  dragging = false; down = null;
+});
+
+// ---- detak utama ----
+function tick() {
+  tickClock(); tickProgress(); tickTimer(); updateLyricLine();
+  $('eyes').classList.toggle('sleepy', Date.now() - state.lastActivity > 5 * 60000);
+  render();
+}
+setInterval(tick, 250);
+setInterval(() => { checkTodoReminders(); checkWaterReminder(); }, 20000);
+tickClock(); drawTimer(); drawWater(); drawTodos(); drawShelf();
+render();
+</script>
+</body>
+</html>
